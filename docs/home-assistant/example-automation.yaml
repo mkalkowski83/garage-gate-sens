@@ -1,0 +1,14 @@
+# Przykład — powiadomienie gdy brama otwarta za długo.
+# entity_id dopasuj po dodaniu urządzenia ESPHome (Developer Tools → States).
+
+automation:
+  - alias: "Garage gate open too long notify"
+    trigger:
+      - platform: state
+        entity_id: binary_sensor.garage_gate_sensor_gate_open_too_long
+        to: "on"
+    action:
+      - service: notify.mobile_app
+        data:
+          title: "Brama garażowa"
+          message: "Brama otwarta dłużej niż limit — sprawdź garaż."

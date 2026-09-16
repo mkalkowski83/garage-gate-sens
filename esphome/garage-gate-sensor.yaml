@@ -1,0 +1,183 @@
+# Czujnik otwarcia bramy — VL53L1X (TOF400C) + ESP32 DevKit V1
+# Spec: docs/superpowers/specs/2026-09-16-garage-gate-sensor-design.md
+# Połączenia: docs/schematics/connections.pl.md
+
+substitutions:
+  device_name: garage-gate
+  friendly_name: Garage Gate Sensor
+  log_level: INFO
+  pin_i2c_sda: GPIO21
+  pin_i2c_scl: GPIO22
+  # Montaż — zmień po instalacji (mm)
+  clearance_full_open_mm: "80"
+  mount_offset_mm: "0"
+  distance_closed_mm: "1200"
+  distance_open_mm: "80"
+  open_threshold_percent: "10"
+  close_threshold_percent: "5"
+  max_open_seconds: "900"
+
+external_components:
+  - source: github://jasonwbarnett/esphome-vl53l1x-pololu
+    components: [vl53l1x_pololu]
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+  level: ${log_level}
+
+api:
+  encryption:
+    key: !secret garage_gate_api_encryption_key
+
+ota:
+  - platform: esphome
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${friendly_name} Fallback"
+    password: "configure-me"
+
+globals:
+  - id: last_good_raw_mm
+    type: float
+    restore_value: no
+    initial_value: "0"
+  - id: last_good_ms
+    type: unsigned long
+    restore_value: no
+    initial_value: "0"
+  - id: gate_is_open
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: open_since_ms
+    type: unsigned long
+    restore_value: no
+    initial_value: "0"
+
+i2c:
+  sda: ${pin_i2c_sda}
+  scl: ${pin_i2c_scl}
+  scan: true
+  frequency: 100kHz
+
+vl53l1x_pololu:
+  distance_mode: long
+  timing_budget: 100ms
+  inter_measurement: 150ms
+
+sensor:
+  - platform: vl53l1x_pololu
+    distance:
+      id: gate_distance_raw
+      name: "Gate Distance Raw"
+      unit_of_measurement: "mm"
+      accuracy_decimals: 0
+      update_interval: 500ms
+      filters:
+        - sliding_window_moving_average:
+            window_size: 5
+            send_every: 1
+
+  - platform: template
+    name: "Gate Distance Effective"
+    id: gate_distance_effective
+    unit_of_measurement: "mm"
+    accuracy_decimals: 0
+    update_interval: 1s
+    lambda: |-
+      const float raw = id(gate_distance_raw).state;
+      if (isnan(raw)) return NAN;
+      id(last_good_raw_mm) = raw;
+      id(last_good_ms) = millis();
+      const float mount = atof("${mount_offset_mm}");
+      return raw - mount;
+
+  - platform: template
+    name: "Gate Open Percent"
+    id: gate_open_percent
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    update_interval: 1s
+    lambda: |-
+      float raw = id(gate_distance_raw).state;
+      if (isnan(raw)) {
+        if (millis() - id(last_good_ms) > 30000) return NAN;
+        raw = id(last_good_raw_mm);
+      }
+      const float mount = atof("${mount_offset_mm}");
+      const float d_eff = raw - mount;
+      const float d_closed_eff = atof("${distance_closed_mm}") - mount;
+      const float d_open_eff = atof("${clearance_full_open_mm}");
+      const float span = d_closed_eff - d_open_eff;
+      if (span <= 0.0f) return NAN;
+      float pct = 100.0f * (d_closed_eff - d_eff) / span;
+      if (pct < 0.0f) pct = 0.0f;
+      if (pct > 100.0f) pct = 100.0f;
+      return pct;
+
+  - platform: template
+    name: "Gate Open Duration"
+    id: gate_open_duration_s
+    unit_of_measurement: "s"
+    accuracy_decimals: 0
+    update_interval: 1s
+    lambda: |-
+      if (!id(gate_is_open)) return 0.0f;
+      return (millis() - id(open_since_ms)) / 1000.0f;
+
+binary_sensor:
+  - platform: template
+    name: "Gate Open"
+    id: gate_open
+    device_class: garage_door
+    lambda: |-
+      return id(gate_is_open);
+
+  - platform: template
+    name: "Gate Open Too Long"
+    id: gate_open_too_long
+    lambda: |-
+      if (!id(gate_is_open)) return false;
+      const float max_s = atof("${max_open_seconds}");
+      const float elapsed = (millis() - id(open_since_ms)) / 1000.0f;
+      return elapsed > max_s;
+
+text_sensor:
+  - platform: template
+    name: "Gate Sensor Status"
+    id: gate_sensor_status
+    update_interval: 5s
+    lambda: |-
+      const float mount = atof("${mount_offset_mm}");
+      const float d_closed_eff = atof("${distance_closed_mm}") - mount;
+      const float d_open_eff = atof("${clearance_full_open_mm}");
+      if ((d_closed_eff - d_open_eff) <= 0.0f) return std::string("invalid_calibration");
+      const float raw = id(gate_distance_raw).state;
+      if (isnan(raw) && (millis() - id(last_good_ms) > 30000)) return std::string("no_reading");
+      return std::string("ok");
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          const float pct = id(gate_open_percent).state;
+          if (isnan(pct)) return;
+          const float open_th = atof("${open_threshold_percent}");
+          const float close_th = atof("${close_threshold_percent}");
+          if (!id(gate_is_open) && pct >= open_th) {
+            id(gate_is_open) = true;
+            id(open_since_ms) = millis();
+          } else if (id(gate_is_open) && pct <= close_th) {
+            id(gate_is_open) = false;
+          }
