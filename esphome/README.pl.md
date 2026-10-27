@@ -1,33 +1,16 @@
 # ESPHome — czujnik bramy garażowej
 
-Plik: [`garage-gate-sensor.yaml`](garage-gate-sensor.yaml)
+Dwa równoległe warianty (osobne drzewa):
 
-## Sekrety
+| Wariant | YAML | README |
+|---------|------|--------|
+| **VL53L1X** (ToF) | [`vl53l1x/garage-gate-sensor.yaml`](vl53l1x/garage-gate-sensor.yaml) | [vl53l1x/README.pl.md](vl53l1x/README.pl.md) |
+| **HC-SR04** (ultradźwięk) | [`hc-sr04/garage-gate-sensor.yaml`](hc-sr04/garage-gate-sensor.yaml) | [hc-sr04/README.pl.md](hc-sr04/README.pl.md) |
+
+## Sekrety (wspólne)
 
 ```bash
 cp secrets.yaml.example secrets.yaml
-# Uzupełnij Wi‑Fi i garage_gate_api_encryption_key (esphome encryption-key)
+# Uzupełnij Wi‑Fi i gdos_sensor__api_key
+# W podkatalogu wariantu: ln -sf ../secrets.yaml secrets.yaml
 ```
-
-## Build / flash
-
-```bash
-esphome run esphome/garage-gate-sensor.yaml
-esphome logs esphome/garage-gate-sensor.yaml
-```
-
-Wymaga dostępu do GitHub (pobranie `esphome-vl53l1x-pololu` przy pierwszej kompilacji).
-
-## Strojenie kalibracji
-
-1. Brama **zamknięta** → odczyt **Gate Distance Raw** → wpisz `distance_closed_mm`.
-2. Ustaw `mount_offset_mm` (cofnięcie czujnika względem osi ruchu).
-3. Ustaw `clearance_full_open_mm` (odległość czujnik–koniec bramy przy pełnym otwarciu).
-4. Sprawdź **Gate Open Percent** (~0 % zamknięta, ~100 % otwarta).
-5. **Gate Sensor Status** = `ok`.
-
-Opcjonalnie: `distance_open_mm` ≈ `clearance_full_open_mm + mount_offset_mm`.
-
-## Home Assistant
-
-Przykład automatu: [`../docs/home-assistant/example-automation.yaml`](../docs/home-assistant/example-automation.yaml)

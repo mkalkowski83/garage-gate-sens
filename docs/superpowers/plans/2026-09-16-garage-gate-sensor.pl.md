@@ -4,7 +4,7 @@
 
 **Goal:** Czujnik otwarcia bramy garażowej (ESP32 + VL53L1X) z % otwarcia, stanem open/closed, czasem otwarcia i alertem „za długo”, raportowany przez ESPHome do Home Assistant; schemat KiCad + dokumentacja połączeń.
 
-**Architecture:** Stałe zasilanie 5 V USB → ESP32 DevKit V1 → I²C (GPIO21/22) → moduł VL53L1X. ESPHome liczy `d_eff`, % z `mount_offset_mm` i `clearance_full_open_mm`, histerezę i czas otwarcia na urządzeniu. HA: dashboard + automat powiadomień. KiCad: schemat ideowy z footprintami modułów (bez routingu PCB v1).
+**Architecture:** Zasilanie USB → ESP32 DevKit V1 (`5V/VIN`) → regulator DevKit → `3V3` zasila VL53L1X (`VIN` + `SHUT`); I²C GPIO21/22. ESPHome liczy `d_eff`, % z `mount_offset_mm` i `clearance_full_open_mm`, histerezę i czas otwarcia. HA: dashboard + automat powiadomień. KiCad: schemat ideowy (bez C2, bez footprintów/routingu PCB w v1).
 
 **Tech Stack:** ESPHome 2026.8 (jak tank-level), ESP32 Arduino (`framework: arduino`, `board: esp32dev`), external component `github://jasonwbarnett/esphome-vl53l1x-pololu` (`vl53l1x_pololu`), KiCad 8/9, Home Assistant.
 
@@ -12,13 +12,16 @@
 
 ## Global Constraints
 
-- Brak deep sleep, baterii, MOSFET-a zasilania czujnika (v1).
-- I²C: SDA GPIO21, SCL GPIO22; VL53L1X VIN z 3V3 DevKit; SHUT → 3V3.
+- Brak deep sleep, baterii, MOSFET-a zasilania czujnika, bulk C2 na +5 V (v1).
+- Zasilanie całego układu przez USB DevKit; czujnik tylko z ESP **3V3**.
+- I²C: SDA GPIO21 (D21), SCL GPIO22 (D22); VL53L1X VIN i SHUT z 3V3; INT = NC.
+- KiCad: bez `PWR_FLAG` na 3V3 (pin ESP `3V3` jest już `power_out`).
 - Kalibracja wyłącznie przez `substitutions` w YAML (bez encji `number` w HA w v1).
 - `span = (distance_closed_mm - mount_offset_mm) - clearance_full_open_mm` musi być > 0; inaczej status `invalid_calibration`.
 - Progi histerezy domyślnie: open ≥ 10 %, close ≤ 5 %.
 - `max_open_seconds` domyślnie 900 (15 min).
 - Nie reimplementować % w HA.
+- Footprinty odroczone (v1 = schemat ideowy).
 
 ---
 
@@ -36,7 +39,7 @@
 | `docs/schematics/connections.en.md` | EN mirror |
 | `docs/home-assistant/example-automation.yaml` | Przykład notify przy `open_too_long` |
 | `docs/kicad/garage-gate-sens-devkit/*` | Projekt KiCad |
-| `symbols/garage-gate.kicad_sym` (w katalogu KiCad) | Uproszczony ESP32 DevKit + opcjonalnie moduł ToF |
+| `symbols/garage-gate.kicad_sym` (w katalogu KiCad) | `ESP32_DEVKIT` (5 pinów) + `VL53L1X` (VIN…SHUT) |
 
 ---
 
@@ -64,7 +67,8 @@ esphome/secrets.yaml
 ```yaml
 wifi_ssid: "YOUR_SSID"
 wifi_password: "YOUR_WIFI_PASSWORD"
-garage_gate_api_encryption_key: "GENERATE_32_CHAR_KEY"
+gdos_sensor__api_key: "GENERATE_32_CHAR_KEY"
+gdos_sensor__ota_password: "YOUR_OTA_PASSWORD"
 ```
 
 - [ ] **Step 3: Krótkie README** — skopiuj styl z `tank-level/README.pl.md`: hardware table, link do spec i planu, komenda `esphome run esphome/garage-gate-sensor.yaml`.
@@ -131,10 +135,11 @@ logger:
 
 api:
   encryption:
-    key: !secret garage_gate_api_encryption_key
+    key: !secret gdos_sensor__api_key
 
 ota:
   - platform: esphome
+    password: !secret gdos_sensor__ota_password
 
 wifi:
   ssid: !secret wifi_ssid
@@ -386,12 +391,12 @@ git commit -am "feat(esphome): hysteresis, open duration, too-long binary"
 
 | ESP32 DevKit | VL53L1X | Uwagi |
 |--------------|---------|--------|
-| 3V3 | VIN | |
+| USB → 5V/VIN | — | Zasilanie całego układu przez DevKit |
+| 3V3 | VIN, SHUT | Bez C2 na +5 V |
 | GND | GND | |
-| GPIO21 | SDA | I²C |
-| GPIO22 | SCL | I²C |
-| 3V3 | SHUT | stałe Wł. |
-| 5V/VIN | — | z USB 5 V |
+| GPIO21 (D21) | SDA | I²C |
+| GPIO22 (D22) | SCL | I²C |
+| — | INT | NC |
 
 Sekcja **Kalibracja YAML**: opis `mount_offset_mm`, `clearance_full_open_mm`, `distance_closed_mm`, walidacja `distance_open_mm ≈ clearance + mount`.
 
@@ -406,28 +411,30 @@ git commit -m "docs: add connection tables PL/EN"
 
 ---
 
-### Task 6: KiCad — schemat ideowy + footprinty
+### Task 6: KiCad — schemat ideowy (bez footprintów)
 
 **Files:**
-- Create: `docs/kicad/garage-gate-sens-devkit/garage-gate-sens-devkit.kicad_pro`, `.kicad_sch`, `README.pl.md`, opcjonalnie `symbols/garage-gate.kicad_sym`
+- Modify: `docs/kicad/garage-gate-sens-devkit/garage-gate-sens-devkit.kicad_sch`, `STEP1.pl.md`, `README.pl.md`, `symbols/garage-gate.kicad_sym`
 - Create: `docs/schematics/garage-gate-sens-devkit.pdf` (eksport ręczny z KiCad)
 
 **Interfaces:**
-- Produces: PDF i ERC bez błędów krytycznych; net labels `+5V`, `+3V3`, `GND`, `I2C_SDA`, `I2C_SCL`.
+- Produces: ERC clean; refs **U2**=ESP32, **U1**=VL53L1X, **C1**=100 nF; brak C2; INT=`no_connect`.
 
-- [ ] **Step 1: Skopiuj wzorzec z tank-level** — uproszczony symbol ESP32 z `tank-level/docs/kicad/tank-level-devkit/symbols/` (tylko piny: 5V, GND, 3V3, GPIO21, GPIO22) lub narysuj blok tekstowy + pin headers 2×19 footprint.
+- [x] **Step 1: Symbole** — `ESP32_DEVKIT` (tylko 5V/VIN, GND, 3V3, GPIO21/SDA, GPIO22/SCL) + `VL53L1X` (VIN…SHUT).
 
-- [ ] **Step 2: Schemat** — `PWR` USB 5V → DevKit; moduł VL53L1X jako 6-pin connector; C1 100nF na 3V3; opcjonalnie C2 bulk 470µF na 5V (DNP dozwolone).
+- [x] **Step 2: Schemat** — USB/+5V → U2 `5V/VIN`; 3V3 → U1 VIN+SHUT + C1 100 nF do GND; I²C SDA/SCL; INT NC. **Bez C2.**
 
-- [ ] **Step 3: ERC** w KiCad — popraw PWR_FLAG na liniach zasilania jeśli wymagane (patrz tank-level README o PWR_FLAG).
+- [x] **Step 3: ERC** — `PWR_FLAG` tylko na zewnętrznym +5V jeśli potrzebny; **nie** na 3V3 (kolizja z `power_out` pinu ESP).
 
-- [ ] **Step 4: Plot PDF** → `docs/schematics/garage-gate-sens-devkit.pdf`; w `connections.pl.md` dodaj link.
+- [ ] **Step 4: Usuń C2** z arkusza jeśli jeszcze obecny; zapisz `.kicad_sch`.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 5: Plot PDF** → `docs/schematics/garage-gate-sens-devkit.pdf`; link w `connections*.md`.
+
+- [ ] **Step 6: Commit** (po akceptacji użytkownika)
 
 ```bash
-git add docs/kicad/ docs/schematics/garage-gate-sens-devkit.pdf
-git commit -m "docs(kicad): garage gate devkit schematic and PDF export"
+git add docs/kicad/ docs/schematics/
+git commit -m "docs(kicad): finalize garage gate schematic without C2"
 ```
 
 ---
@@ -513,4 +520,4 @@ Brak TBD w planie. Nazwy encji ESPHome mogą wymagać dopasowania `entity_id` w 
 | Brak natywnego `vl53l1x` w core ESPHome | Pin `jasonwbarnett/esphome-vl53l1x-pololu` w YAML |
 | Wibracje łańcucha | `window_size: 5`, histereza 10/5 % |
 | Złe `span` po montażu | `invalid_calibration` + log w README jak stroić |
-| Nazwa encji HA inna niż w przykładzie | Sprawdź w HA → Developer Tools → States |
+| KiCad ERC: `PWR_FLAG` on 3V3 | Do not place it — ESP `3V3` is already `power_out` |

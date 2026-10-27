@@ -1,0 +1,270 @@
+# Czujnik otwarcia bramy — HC-SR04 + ESP32 DevKit V1
+# Spec: docs/superpowers/specs/2026-10-26-garage-gate-sensor-hc-sr04-design.md
+# Połączenia: docs/schematics/connections-hc-sr04.pl.md
+
+substitutions:
+  device_name: garage-gate-hc-sr04
+  friendly_name: Garage Gate Sensor HC-SR04
+  # Wi‑Fi AP SSID max 32 chars (friendly_name + " Fallback" exceeds that)
+  ap_ssid: "Gate-HC-SR04 Fallback"
+  log_level: INFO
+  pin_trig: GPIO5
+  pin_echo: GPIO19
+  # Kalibracja — podmień po instalacji (mniejszy dystans → większe %)
+  clearance_full_open_mm: "400"
+  mount_offset_mm: "0"
+  distance_closed_mm: "3000"
+  distance_open_mm: "400"
+  open_threshold_percent: "10"
+  close_threshold_percent: "5"
+  max_open_seconds: "900"
+
+esphome:
+  name: ${device_name}
+  friendly_name: ${friendly_name}
+
+esp32:
+  board: esp32dev
+  framework:
+    type: arduino
+
+logger:
+  level: ${log_level}
+
+api:
+  encryption:
+    key: !secret gdos_sensor__api_key
+
+ota:
+  - platform: esphome
+    encryption:
+
+wifi:
+  ssid: !secret wifi_ssid
+  password: !secret wifi_password
+  ap:
+    ssid: "${ap_ssid}"
+    password: "configure-me"
+
+captive_portal:
+
+debug:
+
+globals:
+  - id: last_good_raw_mm
+    type: float
+    restore_value: no
+    initial_value: "0"
+  - id: last_good_ms
+    type: unsigned long
+    restore_value: no
+    initial_value: "0"
+  - id: gate_is_open
+    type: bool
+    restore_value: no
+    initial_value: "false"
+  - id: open_since_ms
+    type: unsigned long
+    restore_value: no
+    initial_value: "0"
+
+sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    id: wifi_signal_db
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: copy
+    source_id: wifi_signal_db
+    name: "WiFi Signal %"
+    id: wifi_signal_pct
+    entity_category: diagnostic
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+
+  - platform: uptime
+    name: "Uptime"
+    id: uptime_sensor
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: internal_temperature
+    name: "ESP Temperature"
+    id: esp_temperature
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: debug
+    free:
+      name: "Heap Free"
+      id: heap_free
+      entity_category: diagnostic
+    block:
+      name: "Heap Max Block"
+      id: heap_max_block
+      entity_category: diagnostic
+    loop_time:
+      name: "Loop Time"
+      id: loop_time
+      entity_category: diagnostic
+
+  - platform: ultrasonic
+    trigger_pin: ${pin_trig}
+    echo_pin: ${pin_echo}
+    name: "Gate Distance Raw"
+    id: gate_distance_raw
+    unit_of_measurement: "mm"
+    accuracy_decimals: 0
+    update_interval: 500ms
+    # ESPHome ultrasonic returns meters; convert to mm for parity with VL53L1X
+    filters:
+      - multiply: 1000.0
+      - sliding_window_moving_average:
+          window_size: 5
+          send_every: 1
+      - lambda: |-
+          if (isnan(x) || x < 20.0f || x > 4000.0f) return NAN;
+          return x;
+
+  - platform: template
+    name: "Gate Distance Effective"
+    id: gate_distance_effective
+    unit_of_measurement: "mm"
+    accuracy_decimals: 0
+    update_interval: 1s
+    lambda: |-
+      const float raw = id(gate_distance_raw).state;
+      if (isnan(raw)) return NAN;
+      id(last_good_raw_mm) = raw;
+      id(last_good_ms) = millis();
+      const float mount = atof("${mount_offset_mm}");
+      return raw - mount;
+
+  - platform: template
+    name: "Gate Open Percent"
+    id: gate_open_percent
+    unit_of_measurement: "%"
+    accuracy_decimals: 1
+    update_interval: 1s
+    lambda: |-
+      float raw = id(gate_distance_raw).state;
+      if (isnan(raw)) {
+        if (millis() - id(last_good_ms) > 30000) return NAN;
+        raw = id(last_good_raw_mm);
+        if (raw <= 0.0f) return NAN;
+      } else {
+        id(last_good_raw_mm) = raw;
+        id(last_good_ms) = millis();
+      }
+      const float mount = atof("${mount_offset_mm}");
+      const float d_eff = raw - mount;
+      const float d_closed_eff = atof("${distance_closed_mm}") - mount;
+      const float d_open_eff = atof("${clearance_full_open_mm}");
+      const float span = d_closed_eff - d_open_eff;
+      if (span <= 0.0f) return NAN;
+      float pct = 100.0f * (d_closed_eff - d_eff) / span;
+      if (pct < 0.0f) pct = 0.0f;
+      if (pct > 100.0f) pct = 100.0f;
+      return pct;
+
+  - platform: template
+    name: "Gate Open Duration"
+    id: gate_open_duration_s
+    unit_of_measurement: "s"
+    accuracy_decimals: 0
+    update_interval: 1s
+    lambda: |-
+      if (!id(gate_is_open)) return 0.0f;
+      return (millis() - id(open_since_ms)) / 1000.0f;
+
+binary_sensor:
+  - platform: status
+    name: "Status"
+    id: device_status
+    entity_category: diagnostic
+
+  - platform: template
+    name: "Gate Open"
+    id: gate_open
+    device_class: garage_door
+    lambda: |-
+      return id(gate_is_open);
+
+  - platform: template
+    name: "Gate Open Too Long"
+    id: gate_open_too_long
+    lambda: |-
+      if (!id(gate_is_open)) return false;
+      const float max_s = atof("${max_open_seconds}");
+      const float elapsed = (millis() - id(open_since_ms)) / 1000.0f;
+      return elapsed > max_s;
+
+text_sensor:
+  - platform: version
+    name: "ESPHome Version"
+    id: esphome_version
+    hide_timestamp: true
+    entity_category: diagnostic
+
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+      id: wifi_ip
+      entity_category: diagnostic
+    ssid:
+      name: "WiFi SSID"
+      id: wifi_ssid_info
+      entity_category: diagnostic
+    bssid:
+      name: "WiFi BSSID"
+      id: wifi_bssid
+      entity_category: diagnostic
+    mac_address:
+      name: "MAC Address"
+      id: wifi_mac
+      entity_category: diagnostic
+    dns_address:
+      name: "DNS Address"
+      id: wifi_dns
+      entity_category: diagnostic
+
+  - platform: debug
+    device:
+      name: "Device Info"
+      id: device_info
+      entity_category: diagnostic
+    reset_reason:
+      name: "Reset Reason"
+      id: reset_reason
+      entity_category: diagnostic
+
+  - platform: template
+    name: "Gate Sensor Status"
+    id: gate_sensor_status
+    update_interval: 5s
+    lambda: |-
+      const float mount = atof("${mount_offset_mm}");
+      const float d_closed_eff = atof("${distance_closed_mm}") - mount;
+      const float d_open_eff = atof("${clearance_full_open_mm}");
+      if ((d_closed_eff - d_open_eff) <= 0.0f) return std::string("invalid_calibration");
+      const float raw = id(gate_distance_raw).state;
+      if (isnan(raw) && (millis() - id(last_good_ms) > 30000)) return std::string("no_reading");
+      return std::string("ok");
+
+interval:
+  - interval: 1s
+    then:
+      - lambda: |-
+          const float pct = id(gate_open_percent).state;
+          if (isnan(pct)) return;
+          const float open_th = atof("${open_threshold_percent}");
+          const float close_th = atof("${close_threshold_percent}");
+          if (!id(gate_is_open) && pct >= open_th) {
+            id(gate_is_open) = true;
+            id(open_since_ms) = millis();
+          } else if (id(gate_is_open) && pct <= close_th) {
+            id(gate_is_open) = false;
+          }

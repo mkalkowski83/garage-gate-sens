@@ -240,7 +240,7 @@
       "internal_id": "",
       "mfg": "",
       "mpn": "",
-      "sch_revision": "0.3-erc"
+      "sch_revision": "0.2"
     },
     "layer_pairs": [],
     "layer_presets": [],
@@ -488,7 +488,7 @@
     "pinned_symbol_libs": []
   },
   "meta": {
-    "filename": "garage-gate-sens-devkit.kicad_pro",
+    "filename": "garage-gate-sens-hc-sr04.kicad_pro",
     "version": 3
   },
   "net_settings": {
@@ -667,8 +667,8 @@
     "subpart_id_separator": 0,
     "top_level_sheets": [
       {
-        "filename": "garage-gate-sens-devkit.kicad_sch",
-        "name": "garage-gate-sens-devkit",
+        "filename": "garage-gate-sens-hc-sr04.kicad_sch",
+        "name": "garage-gate-sens-hc-sr04",
         "uuid": "5956fa7a-6761-471d-9407-b7d89429757a"
       }
     ],
@@ -678,7 +678,7 @@
   "sheets": [
     [
       "5956fa7a-6761-471d-9407-b7d89429757a",
-      "garage-gate-sens-devkit"
+      "garage-gate-sens-hc-sr04"
     ]
   ],
   "text_variables": {},

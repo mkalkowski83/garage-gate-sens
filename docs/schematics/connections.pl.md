@@ -2,29 +2,34 @@
 
 Moduł: **ESP32-DevKitC / DevKit V1** (38 pin), moduł **VL53L1X** na breakout (I²C).
 
-Zasilanie: **stałe 5 V USB** (zasilacz ścienny) — bez baterii w wersji v1.
+**Zasilanie:** USB (lub zasilacz 5 V) **wpinany w ESP32**. DevKit reguluje **3V3**, które zasila cały czujnik. Bez baterii i bez osobnego bulk C2 na +5 V (v1).
 
-**Schemat ideowy (KiCad):** [`garage-gate-sens-devkit.pdf`](garage-gate-sens-devkit.pdf) — projekt źródłowy: [`../kicad/garage-gate-sens-devkit/`](../kicad/garage-gate-sens-devkit/).
+**Schemat ideowy (KiCad):** [`../kicad/garage-gate-sens-vl53l1x/garage-gate-sens-devkit.pdf`](../kicad/garage-gate-sens-vl53l1x/garage-gate-sens-devkit.pdf) — projekt: [`../kicad/garage-gate-sens-vl53l1x/`](../kicad/garage-gate-sens-vl53l1x/).
 
 ## 1. Zasilanie
 
 | Źródło | ESP32 DevKit | Uwagi |
 |--------|--------------|--------|
-| +5 V (USB) | 5V / VIN | Wspólna masa z modułem ToF |
-| GND | GND | |
+| USB / +5 V | 5V / VIN | Zasilanie całego układu przez DevKit |
+| GND | GND | Wspólna masa z modułem ToF |
+| (wewnętrznie) | 3V3 | Źródło dla VL53L1X VIN + SHUT |
 
 ## 2. VL53L1X (moduł 6-pin)
 
-| ESP32 DevKit | VL53L1X | Uwagi |
-|--------------|---------|--------|
-| 3V3 | VIN | Zasilanie modułu (3,3 V z DevKit) |
-| GND | GND | |
-| GPIO21 | SDA | I²C |
-| GPIO22 | SCL | I²C |
-| 3V3 | SHUT | Stałe włączenie czujnika |
-| — | INT | Niepodłączone (polling w ESPHome) |
+Kolejność pinów na module (pin 1): **VIN → GND → SDA → SCL → INT → SHUT**.
 
-## 3. Kalibracja w `esphome/garage-gate-sensor.yaml`
+| Pin modułu | Sygnał | ESP32 DevKit | Uwagi |
+|------------|--------|--------------|--------|
+| 1 | VIN | 3V3 | Zasilanie z DevKit |
+| 2 | GND | GND | |
+| 3 | SDA | GPIO21 (D21) | I²C |
+| 4 | SCL | GPIO22 (D22) | I²C |
+| 5 | INT | — | NC (`no_connect`; polling ESPHome) |
+| 6 | SHUT | 3V3 | Stałe włączenie |
+
+**Kondensator:** C1 **100 nF** między 3V3 a GND przy module ToF.
+
+## 3. Kalibracja w `esphome/vl53l1x/garage-gate-sensor.yaml`
 
 | Parametr | Znaczenie |
 |----------|-----------|
@@ -39,5 +44,5 @@ Zasilanie: **stałe 5 V USB** (zasilacz ścienny) — bez baterii w wersji v1.
 
 | GPIO | Funkcja |
 |------|---------|
-| GPIO21 | I²C SDA |
-| GPIO22 | I²C SCL |
+| GPIO21 (D21) | I²C SDA |
+| GPIO22 (D22) | I²C SCL |

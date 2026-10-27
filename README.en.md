@@ -1,26 +1,25 @@
 # Garage gate opening sensor
 
-Garage gate monitor using **ESP32 DevKit V1**, **VL53L1X** (TOF400C I²C module), **ESPHome**, and **Home Assistant**. Reports **open %**, **open/closed** state, **open duration**, and **open too long**. Powered from a **5 V USB** adapter (indoor garage).
+ESP32 DevKit V1 + **ESPHome** / **Home Assistant**: **open %**, **open/closed**, **open duration**, **open too long**.
 
-## Hardware (v1)
+Two parallel distance-sensor variants:
 
-| Part | Role |
-|------|------|
-| ESP32 DevKit V1 | MCU, Wi‑Fi |
-| VL53L1X breakout (TOF400C) | Distance to gate end |
-| 5 V USB adapter | Mains power |
+| Variant | Sensor | Sensor power | Firmware |
+|---------|--------|--------------|----------|
+| **VL53L1X** | ToF (TOF400C), I²C | DevKit **3V3** | [`esphome/vl53l1x/`](esphome/vl53l1x/) |
+| **HC-SR04** | Ultrasonic | **VIN (5 V)** + Echo divider 1k+2k | [`esphome/hc-sr04/`](esphome/hc-sr04/) |
 
-Mounting: sensor on chain-track hardware; **shorter distance → more open**.
+Mounting (both): chain-track geometry; **smaller distance → more open**. Calibrate via YAML `substitutions`.
 
-## Documentation
+## Docs
 
-| Topic | Link |
-|-------|------|
-| Wiring | [docs/schematics/connections.en.md](docs/schematics/connections.en.md) |
-| Design spec | [docs/superpowers/specs/2026-09-16-garage-gate-sensor-design.md](docs/superpowers/specs/2026-09-16-garage-gate-sensor-design.md) |
-| Implementation plan | [docs/superpowers/plans/2026-09-16-garage-gate-sensor.pl.md](docs/superpowers/plans/2026-09-16-garage-gate-sensor.pl.md) |
-| KiCad | [docs/kicad/garage-gate-sens-devkit/](docs/kicad/garage-gate-sens-devkit/) |
-| ESPHome | [esphome/README.pl.md](esphome/README.pl.md) |
+| Topic | VL53L1X | HC-SR04 |
+|-------|---------|---------|
+| Connections | [connections.en.md](docs/schematics/connections.en.md) | [connections-hc-sr04.en.md](docs/schematics/connections-hc-sr04.en.md) |
+| Spec | [2026-09-16 design](docs/superpowers/specs/2026-09-16-garage-gate-sensor-design.md) | [2026-10-26 HC-SR04](docs/superpowers/specs/2026-10-26-garage-gate-sensor-hc-sr04-design.md) |
+| Plan | [2026-09-16 plan](docs/superpowers/plans/2026-09-16-garage-gate-sensor.pl.md) | [2026-10-26 plan](docs/superpowers/plans/2026-10-26-garage-gate-sensor-hc-sr04.md) |
+| KiCad | [garage-gate-sens-vl53l1x/](docs/kicad/garage-gate-sens-vl53l1x/) | [garage-gate-sens-hc-sr04/](docs/kicad/garage-gate-sens-hc-sr04/) |
+| ESPHome | [esphome/README.pl.md](esphome/README.pl.md) | same |
 
 Polski: [README.pl.md](README.pl.md)
 
@@ -28,7 +27,6 @@ Polski: [README.pl.md](README.pl.md)
 
 ```bash
 cp esphome/secrets.yaml.example esphome/secrets.yaml
-esphome run esphome/garage-gate-sensor.yaml
+esphome run esphome/vl53l1x/garage-gate-sensor.yaml
+esphome run esphome/hc-sr04/garage-gate-sensor.yaml
 ```
-
-Tune `mount_offset_mm`, `clearance_full_open_mm`, and `distance_closed_mm` in `esphome/garage-gate-sensor.yaml`.

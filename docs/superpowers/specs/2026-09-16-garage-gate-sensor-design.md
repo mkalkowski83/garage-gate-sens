@@ -2,11 +2,11 @@
 
 **Date:** 2026-09-16  
 **Repo:** `garage-gate-sens` (GageGateSens)  
-**Status:** Approved in brainstorming (with mechanical offset parameters)
+**Status:** Approved (hardware schematic finalized)
 
 ## 1. Goal
 
-Wireless garage gate monitor: **opening percentage**, **open/closed** state with hysteresis, **current open duration**, and **open too long** alert. Firmware on **ESP32** with **ESPHome**; **Home Assistant** for dashboards and notifications. Fixed **5 V USB** supply; electronics inside a dry garage.
+Wireless garage gate monitor: **opening percentage**, **open/closed** state with hysteresis, **current open duration**, and **open too long** alert. Firmware on **ESP32** with **ESPHome**; **Home Assistant** for dashboards and notifications. Power via **USB into ESP32 DevKit**; electronics inside a dry garage.
 
 **Measurement geometry:** VL53L1X on a chain-track-related mount; laser points at the **end of the gate leaf**. **Smaller distance → more open**; **larger distance → more closed**.
 
@@ -16,34 +16,46 @@ Wireless garage gate monitor: **opening percentage**, **open/closed** state with
 
 | Item | Role |
 |------|------|
-| ESP32 DevKit V1 | MCU, Wi‑Fi |
-| VL53L1X module (e.g. TOF400C breakout) | Distance via I²C |
-| 5 V USB adapter | Mains power |
-| Optional 100 nF on 3V3 at module | Decoupling (footprint 0805) |
-| Optional bulk cap on 5 V input | Stability (footprint in schematic) |
+| ESP32 DevKit V1 | MCU, Wi‑Fi, onboard 5 V→3.3 V regulation |
+| VL53L1X module (TOF400C breakout) | Distance via I²C |
+| USB 5 V supply into DevKit | Mains power for whole board |
+| C1 100 nF | Decoupling on 3V3 at ToF module |
 
-**Not in v1:** battery, charger, boost, sensor power MOSFET, custom PCB, outdoor enclosure.
+**Power topology:** USB (or 5 V wall adapter) → ESP32 `5V/VIN` → DevKit regulator → `3V3` → VL53L1X `VIN` and `SHUT`. The sensor is powered only from ESP **3V3**, not from a separate 5 V rail.
+
+**Not in v1:** battery, charger, boost, bulk capacitor on +5 V (C2), sensor power MOSFET, custom PCB, outdoor enclosure, footprints / PCB placement focus.
 
 ### 2.1 Connections
 
-| Signal | Connection |
-|--------|------------|
-| +5 V | USB input → ESP32 5V/VIN |
-| GND | Common |
-| +3V3 | ESP32 3V3 → module VIN (preferred) |
-| I2C SDA | GPIO21 |
-| I2C SCL | GPIO22 |
-| SHUT | Tie to 3V3 (always on) |
-| INT | NC (polling) |
+| ESP32 / power | Connection |
+|---------------|------------|
+| +5 V (USB into DevKit) | ESP32 `5V/VIN` |
+| GND | Common with module pin 2 |
+
+VL53L1X module pin order: **VIN, GND, SDA, SCL, INT, SHUT** (pins 1–6).
+
+| Pin | Signal | Connection |
+|-----|--------|------------|
+| 1 | VIN | ESP32 3V3 |
+| 2 | GND | GND |
+| 3 | SDA | GPIO21 (D21 on DevKit silkscreen) |
+| 4 | SCL | GPIO22 (D22 on DevKit silkscreen) |
+| 5 | INT | NC (`no_connect`; ESPHome polls over I²C) |
+| 6 | SHUT | 3V3 (always on) |
+
+**KiCad ERC:** `PWR_FLAG` only on external +5 V if needed. Do **not** place `PWR_FLAG` on 3V3 — ESP `3V3` is already `power_out` and is the source for that net.
 
 ### 2.2 KiCad
 
-- Path: `docs/kicad/garage-gate-sens-devkit/`
-- Ideological schematic: power, DevKit, VL53L1X module, net labels
-- **Footprints:** DevKit header pattern; VL53L1X breakout (verify pin spacing against physical module)
-- Export PDF → `docs/schematics/`
-- Connection tables: `docs/schematics/connections*.pl.md` (mirror tank-level layout)
-- v1: schematic + BOM; no routed PCB
+- Path: `docs/kicad/garage-gate-sens-vl53l1x/` (formerly `garage-gate-sens-devkit`)
+- Ideological schematic: USB/+5V → DevKit → VL53L1X on I²C + C1
+- Custom symbols (`garage-gate.kicad_sym`):
+  - `ESP32_DEVKIT` — only pins used: `5V/VIN`, `GND`, `3V3`, `GPIO21/D21/SDA`, `GPIO22/D22/SCL`
+  - `VL53L1X` — pins 1–6: VIN, GND, SDA, SCL, INT, SHUT
+- Schematic refs (as drawn): **U2** = ESP32 DevKit, **U1** = VL53L1X, **C1** = 100 nF
+- Export PDF → `docs/schematics/garage-gate-sens-devkit.pdf`
+- Connection tables: `docs/schematics/connections*.pl.md`
+- v1: schematic + BOM notes; no routed PCB; footprints deferred
 
 ## 3. Mechanical parameters and calibration
 
@@ -143,19 +155,21 @@ On **Gate Open Percent** (not raw mm):
 2. Install: closed ≈ 0 %, full open ≈ 100 % after offset/clearance tuning.
 3. Hysteresis: no binary flutter at partial open.
 4. Duration and too-long threshold.
-5. KiCad ERC clean; PDF matches connection doc.
+5. KiCad ERC clean (no `PWR_FLAG` on 3V3); PDF matches connection doc.
 6. ESPHome compile for project ESPHome version (align with tank-level, e.g. 2026.8).
 
 ## 8. Out of scope v1
 
-Custom PCB, gate control, battery/solar, outdoor sensor housing, multiple sensors, Modbus/RS485 variants.
+Custom PCB, gate control, battery/solar, outdoor sensor housing, multiple sensors, Modbus/RS485 variants, bulk +5 V capacitor, footprint assignment.
 
 ## 9. Repository layout (target)
 
 ```
-esphome/garage-gate-sensor.yaml
-docs/schematics/connections*.pl.md
-docs/kicad/garage-gate-sens-devkit/
+esphome/vl53l1x/garage-gate-sensor.yaml
+docs/schematics/connections*.md
+docs/kicad/garage-gate-sens-vl53l1x/
 docs/superpowers/specs/2026-09-16-garage-gate-sensor-design.md
 README.pl.md / README.en.md
 ```
+
+Parallel HC-SR04 variant: `docs/superpowers/specs/2026-10-26-garage-gate-sensor-hc-sr04-design.md`.

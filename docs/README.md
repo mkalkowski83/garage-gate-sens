@@ -1,24 +1,11 @@
 # Documentation / Dokumentacja
 
-## Schematics / Schematy
+## Variants
 
-| Topic | English | Polski |
-|-------|---------|--------|
-| Connections | [connections.en.md](schematics/connections.en.md) | [connections.pl.md](schematics/connections.pl.md) |
-| KiCad PDF | Export to `schematics/garage-gate-sens-devkit.pdf` after ERC | j.w. |
-
-## KiCad
-
-| Project | README |
-|---------|--------|
-| [garage-gate-sens-devkit.kicad_pro](kicad/garage-gate-sens-devkit/garage-gate-sens-devkit.kicad_pro) | [README.pl.md](kicad/garage-gate-sens-devkit/README.pl.md) |
-
-## Design & plan
-
-| Document | Path |
-|----------|------|
-| Design spec | [2026-09-16-garage-gate-sensor-design.md](superpowers/specs/2026-09-16-garage-gate-sensor-design.md) |
-| Implementation plan | [2026-09-16-garage-gate-sensor.pl.md](superpowers/plans/2026-09-16-garage-gate-sensor.pl.md) |
+| Variant | Connections | KiCad | Spec | Plan |
+|---------|-------------|-------|------|------|
+| VL53L1X | [PL](schematics/connections.pl.md) / [EN](schematics/connections.en.md) | [garage-gate-sens-vl53l1x](kicad/garage-gate-sens-vl53l1x/) | [2026-09-16](superpowers/specs/2026-09-16-garage-gate-sensor-design.md) | [plan](superpowers/plans/2026-09-16-garage-gate-sensor.pl.md) |
+| HC-SR04 | [PL](schematics/connections-hc-sr04.pl.md) / [EN](schematics/connections-hc-sr04.en.md) | [garage-gate-sens-hc-sr04](kicad/garage-gate-sens-hc-sr04/) | [2026-10-26](superpowers/specs/2026-10-26-garage-gate-sensor-hc-sr04-design.md) | [plan](superpowers/plans/2026-10-26-garage-gate-sensor-hc-sr04.md) |
 
 ## Home Assistant
 
@@ -30,4 +17,4 @@
 
 | Guide | Path |
 |-------|------|
-| ESPHome (PL) | [../esphome/README.pl.md](../esphome/README.pl.md) |
+| ESPHome index (PL) | [../esphome/README.pl.md](../esphome/README.pl.md) |

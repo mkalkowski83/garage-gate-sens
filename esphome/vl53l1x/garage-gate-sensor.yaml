@@ -1,18 +1,21 @@
 # Czujnik otwarcia bramy — VL53L1X (TOF400C) + ESP32 DevKit V1
 # Spec: docs/superpowers/specs/2026-09-16-garage-gate-sensor-design.md
 # Połączenia: docs/schematics/connections.pl.md
+# Wariant równoległy: esphome/hc-sr04/
 
 substitutions:
   device_name: garage-gate
   friendly_name: Garage Gate Sensor
   log_level: INFO
+  # DevKit silkscreen: GPIO21 = D21, GPIO22 = D22
   pin_i2c_sda: GPIO21
   pin_i2c_scl: GPIO22
-  # Montaż — zmień po instalacji (mm)
-  clearance_full_open_mm: "80"
+  # Kalibracja testowa w pokoju (ściana @ 3 m, full open @ 40 cm)
+  # Po instalacji w garażu podmień na realne odczyty.
+  clearance_full_open_mm: "400"    # full open @ 40 cm
   mount_offset_mm: "0"
-  distance_closed_mm: "1200"
-  distance_open_mm: "80"
+  distance_closed_mm: "3000"       # full close @ 3,0 m (ściana)
+  distance_open_mm: "400"          # ≈ clearance + mount (kontrola; nieużywane w %)
   open_threshold_percent: "10"
   close_threshold_percent: "5"
   max_open_seconds: "900"
@@ -35,10 +38,11 @@ logger:
 
 api:
   encryption:
-    key: !secret garage_gate_api_encryption_key
+    key: !secret gdos_sensor__api_key
 
 ota:
   - platform: esphome
+    encryption:
 
 wifi:
   ssid: !secret wifi_ssid
@@ -46,6 +50,11 @@ wifi:
   ap:
     ssid: "${friendly_name} Fallback"
     password: "configure-me"
+
+captive_portal:
+
+# Diagnostyka widoczna w Home Assistant
+debug:
 
 globals:
   - id: last_good_raw_mm
@@ -69,25 +78,93 @@ i2c:
   sda: ${pin_i2c_sda}
   scl: ${pin_i2c_scl}
   scan: true
-  frequency: 100kHz
+  # 50 kHz — delikatniej na długich/niepewnych przewodach (zalecenie komponentu)
+  frequency: 50kHz
 
 vl53l1x_pololu:
   distance_mode: long
-  timing_budget: 100ms
-  inter_measurement: 150ms
+  # 3–4 m: ST/Pololu zaleca ≥140 ms; przy słabej ścianie/świetle 200 bywa za mało
+  timing_budget: 500ms
+  inter_measurement: 550ms
+  # Publish cadence (ranging itself runs continuously via inter_measurement)
+  update_interval: 500ms
 
 sensor:
+  - platform: wifi_signal
+    name: "WiFi Signal"
+    id: wifi_signal_db
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: copy
+    source_id: wifi_signal_db
+    name: "WiFi Signal %"
+    id: wifi_signal_pct
+    entity_category: diagnostic
+    filters:
+      - lambda: return min(max(2 * (x + 100.0), 0.0), 100.0);
+    unit_of_measurement: "%"
+    accuracy_decimals: 0
+
+  - platform: uptime
+    name: "Uptime"
+    id: uptime_sensor
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: internal_temperature
+    name: "ESP Temperature"
+    id: esp_temperature
+    update_interval: 60s
+    entity_category: diagnostic
+
+  - platform: debug
+    free:
+      name: "Heap Free"
+      id: heap_free
+      entity_category: diagnostic
+    block:
+      name: "Heap Max Block"
+      id: heap_max_block
+      entity_category: diagnostic
+    loop_time:
+      name: "Loop Time"
+      id: loop_time
+      entity_category: diagnostic
+
   - platform: vl53l1x_pololu
     distance:
       id: gate_distance_raw
       name: "Gate Distance Raw"
       unit_of_measurement: "mm"
       accuracy_decimals: 0
-      update_interval: 500ms
       filters:
+        # Poza zasięgiem VL53L1X często zwraca ~40 mm (minimum) zamiast błędu.
+        # Nie odwołuj się tu do range_status — to samo platform → circular dependency.
+        - lambda: |-
+            if (x < 45.0f) return NAN;
+            return x;
         - sliding_window_moving_average:
             window_size: 5
             send_every: 1
+    range_status:
+      name: "Gate Range Status"
+      id: gate_range_status
+      entity_category: diagnostic
+    signal_rate:
+      name: "Gate Signal Rate"
+      id: gate_signal_rate
+      entity_category: diagnostic
+    ambient_rate:
+      name: "Gate Ambient Rate"
+      id: gate_ambient_rate
+      entity_category: diagnostic
+    frames:
+      name: "Gate ToF Frames"
+      id: gate_tof_frames
+      entity_category: diagnostic
+      filters:
+        - throttle: 5min
 
   - platform: template
     name: "Gate Distance Effective"
@@ -96,6 +173,8 @@ sensor:
     accuracy_decimals: 0
     update_interval: 1s
     lambda: |-
+      const float st = id(gate_range_status).state;
+      if (!isnan(st) && (int) st != 0) return NAN;
       const float raw = id(gate_distance_raw).state;
       if (isnan(raw)) return NAN;
       id(last_good_raw_mm) = raw;
@@ -110,10 +189,13 @@ sensor:
     accuracy_decimals: 1
     update_interval: 1s
     lambda: |-
+      const float st = id(gate_range_status).state;
+      const bool bad_status = !isnan(st) && (int) st != 0;
       float raw = id(gate_distance_raw).state;
-      if (isnan(raw)) {
+      if (isnan(raw) || bad_status) {
         if (millis() - id(last_good_ms) > 30000) return NAN;
         raw = id(last_good_raw_mm);
+        if (raw <= 0.0f) return NAN;
       }
       const float mount = atof("${mount_offset_mm}");
       const float d_eff = raw - mount;
@@ -137,6 +219,11 @@ sensor:
       return (millis() - id(open_since_ms)) / 1000.0f;
 
 binary_sensor:
+  - platform: status
+    name: "Status"
+    id: device_status
+    entity_category: diagnostic
+
   - platform: template
     name: "Gate Open"
     id: gate_open
@@ -154,6 +241,44 @@ binary_sensor:
       return elapsed > max_s;
 
 text_sensor:
+  - platform: version
+    name: "ESPHome Version"
+    id: esphome_version
+    hide_timestamp: true
+    entity_category: diagnostic
+
+  - platform: wifi_info
+    ip_address:
+      name: "IP Address"
+      id: wifi_ip
+      entity_category: diagnostic
+    ssid:
+      name: "WiFi SSID"
+      id: wifi_ssid_info
+      entity_category: diagnostic
+    bssid:
+      name: "WiFi BSSID"
+      id: wifi_bssid
+      entity_category: diagnostic
+    mac_address:
+      name: "MAC Address"
+      id: wifi_mac
+      entity_category: diagnostic
+    dns_address:
+      name: "DNS Address"
+      id: wifi_dns
+      entity_category: diagnostic
+
+  - platform: debug
+    device:
+      name: "Device Info"
+      id: device_info
+      entity_category: diagnostic
+    reset_reason:
+      name: "Reset Reason"
+      id: reset_reason
+      entity_category: diagnostic
+
   - platform: template
     name: "Gate Sensor Status"
     id: gate_sensor_status
@@ -163,6 +288,8 @@ text_sensor:
       const float d_closed_eff = atof("${distance_closed_mm}") - mount;
       const float d_open_eff = atof("${clearance_full_open_mm}");
       if ((d_closed_eff - d_open_eff) <= 0.0f) return std::string("invalid_calibration");
+      const float st = id(gate_range_status).state;
+      if (!isnan(st) && (int) st != 0) return std::string("out_of_range");
       const float raw = id(gate_distance_raw).state;
       if (isnan(raw) && (millis() - id(last_good_ms) > 30000)) return std::string("no_reading");
       return std::string("ok");

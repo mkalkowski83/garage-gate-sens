@@ -2,29 +2,34 @@
 
 **ESP32-DevKitC / DevKit V1** (38-pin) and **VL53L1X** breakout (I²C).
 
-Power: **fixed 5 V USB** wall adapter (no battery in v1).
+**Power:** USB (or 5 V adapter) **into the ESP32**. The DevKit regulates **3V3**, which powers the sensor. No battery and no bulk C2 on +5 V in v1.
 
-**Schematic (KiCad):** [`garage-gate-sens-devkit.pdf`](garage-gate-sens-devkit.pdf) — source: [`../kicad/garage-gate-sens-devkit/`](../kicad/garage-gate-sens-devkit/).
+**Schematic (KiCad):** [`../kicad/garage-gate-sens-vl53l1x/garage-gate-sens-devkit.pdf`](../kicad/garage-gate-sens-vl53l1x/garage-gate-sens-devkit.pdf) — source: [`../kicad/garage-gate-sens-vl53l1x/`](../kicad/garage-gate-sens-vl53l1x/).
 
 ## 1. Power
 
 | Source | ESP32 DevKit | Notes |
 |--------|--------------|--------|
-| +5 V (USB) | 5V / VIN | Common ground with ToF module |
-| GND | GND | |
+| USB / +5 V | 5V / VIN | Whole device powered through the DevKit |
+| GND | GND | Common with ToF module |
+| (on-board) | 3V3 | Supplies VL53L1X VIN + SHUT |
 
 ## 2. VL53L1X (6-pin module)
 
-| ESP32 DevKit | VL53L1X | Notes |
-|--------------|---------|--------|
-| 3V3 | VIN | Module supply from DevKit 3.3 V |
-| GND | GND | |
-| GPIO21 | SDA | I²C |
-| GPIO22 | SCL | I²C |
-| 3V3 | SHUT | Tie high (sensor enabled) |
-| — | INT | NC (ESPHome polling) |
+Pin order on the breakout (pin 1): **VIN → GND → SDA → SCL → INT → SHUT**.
 
-## 3. Calibration (`esphome/garage-gate-sensor.yaml`)
+| Module pin | Signal | ESP32 DevKit | Notes |
+|------------|--------|--------------|--------|
+| 1 | VIN | 3V3 | From DevKit |
+| 2 | GND | GND | |
+| 3 | SDA | GPIO21 (D21) | I²C |
+| 4 | SCL | GPIO22 (D22) | I²C |
+| 5 | INT | — | NC (`no_connect`; ESPHome polling) |
+| 6 | SHUT | 3V3 | Tie high (enabled) |
+
+**Capacitor:** C1 **100 nF** between 3V3 and GND at the ToF module.
+
+## 3. Calibration (`esphome/vl53l1x/garage-gate-sensor.yaml`)
 
 | Parameter | Meaning |
 |-----------|---------|
@@ -39,5 +44,5 @@ Power: **fixed 5 V USB** wall adapter (no battery in v1).
 
 | GPIO | Function |
 |------|----------|
-| GPIO21 | I²C SDA |
-| GPIO22 | I²C SCL |
+| GPIO21 (D21) | I²C SDA |
+| GPIO22 (D22) | I²C SCL |
