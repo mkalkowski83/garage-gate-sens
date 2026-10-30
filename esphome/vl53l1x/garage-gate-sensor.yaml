@@ -32,6 +32,11 @@ esp32:
   board: esp32dev
   framework:
     type: arduino
+    advanced:
+      # Chip rev >= 3.0 (ESP32 DevKit V1) — mniejszy binarny
+      minimum_chip_revision: "3.1"
+      # Bootloader: +40 KB IRAM z SRAM1
+      sram1_as_iram: true
 
 logger:
   level: ${log_level}

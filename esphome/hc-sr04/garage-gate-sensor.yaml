@@ -10,11 +10,11 @@ substitutions:
   log_level: INFO
   pin_trig: GPIO5
   pin_echo: GPIO19
-  # Kalibracja — podmień po instalacji (mniejszy dystans → większe %)
-  clearance_full_open_mm: "400"
+  # Kalibracja field: closed raw ~2575 mm, full open raw ~126 mm
+  clearance_full_open_mm: "126"
   mount_offset_mm: "0"
-  distance_closed_mm: "3000"
-  distance_open_mm: "400"
+  distance_closed_mm: "2575"
+  distance_open_mm: "126"
   open_threshold_percent: "10"
   close_threshold_percent: "5"
   max_open_seconds: "900"
@@ -27,6 +27,11 @@ esp32:
   board: esp32dev
   framework:
     type: arduino
+    advanced:
+      # Chip rev >= 3.0 (ESP32 DevKit V1) — mniejszy binarny
+      minimum_chip_revision: "3.1"
+      # Bootloader: +40 KB IRAM z SRAM1
+      sram1_as_iram: true
 
 logger:
   level: ${log_level}
@@ -119,6 +124,8 @@ sensor:
     unit_of_measurement: "mm"
     accuracy_decimals: 0
     update_interval: 500ms
+    # Default timeout is 2 m — wall @ ~3 m needs headroom (HC-SR04 rated ~4 m)
+    timeout: 4m
     # ESPHome ultrasonic returns meters; convert to mm for parity with VL53L1X
     filters:
       - multiply: 1000.0
